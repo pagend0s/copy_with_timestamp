@@ -12,6 +12,7 @@ Supports **copy or move**, **GUI folder selection**, **progress bar**, **name co
 ## ✨ Features
 
 - Group files into `YYYY\MM` directories (configurable date field).
+- Group files into `YYYY\` directories (configurable date field).
 - Copy **or** move files.
 - Optional **GUI** dialogs to select source/destination.
 - **Unique filename** handling to avoid overwriting.
