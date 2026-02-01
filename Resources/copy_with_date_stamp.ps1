@@ -1,10 +1,10 @@
-
 #Requires -Version 5.1
 <#
 .SYNOPSIS
   Copies or moves files from Source to Destination grouped by YYYY\MM
-  based on LastWriteTime or CreationTime. Supports GUI, name collision
-  handling, progress, and optional CSV report. Compatible with Windows PowerShell 5.1.
+  (or by YYYY with -YearOnly) based on LastWriteTime or CreationTime.
+  Supports GUI, name collision handling, progress, and optional CSV report.
+  Compatible with Windows PowerShell 5.1.
 
 .PARAMETER Source
   Source folder. If omitted and -UseGui is set, a folder dialog will appear.
@@ -22,22 +22,27 @@
   Use folder selection dialogs for Source/Destination when not provided as parameters.
 
 .PARAMETER KeepStructure
-  Preserve relative source directory tree under YYYY\MM (no flatten).
+  Preserve relative source directory tree under YYYY\MM (or YYYY with -YearOnly).
+
+.PARAMETER YearOnly
+  Group files by year only (YYYY) without month subfolders.
 
 .PARAMETER ReportPath
   Optional CSV path to write a report.
 
 .EXAMPLE
-  .\Copy-WithTimestamp.ps1 -UseGui
+  .\copy_with_date_stamp.ps1 -UseGui
 
 .EXAMPLE
-  .\Copy-WithTimestamp.ps1 -Source "D:\Foto" -Destination "E:\Archive" -TimeField CreationTime
+  .\copy_with_date_stamp.ps1 -Source "D:\Foto" -Destination "E:\Archive" -TimeField CreationTime
 
 .EXAMPLE
-  .\Copy-WithTimestamp.ps1 -Source "C:\SRC" -Destination "D:\DST" -Move -KeepStructure -ReportPath "D:\report.csv" -WhatIf
+  .\copy_with_date_stamp.ps1 -Source "C:\SRC" -Destination "D:\DST" -Move -KeepStructure -ReportPath "D:\report.csv" -WhatIf
+
+.EXAMPLE
+  # Year-only grouping (no months)
+  .\copy_with_date_stamp.ps1 -Source "D:\Foto" -Destination "E:\Archive" -YearOnly
 #>
-$ti_sta = "2.0"
-Write-Host ("{0}{1}" -f (' ' * (([Math]::Max(0, $Host.UI.RawUI.BufferSize.Width / 2) - [Math]::Floor($Null.Length / 2)))), "WELCOME TO COPY WITH TIMESTAMP version: " ) -ForegroundColor Green -NoNewline; Write-Host "$ti_sta" -ForegroundColor yellow
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param(
@@ -53,6 +58,9 @@ param(
     [switch]$Move,
     [switch]$UseGui,
     [switch]$KeepStructure,
+
+    # NEW: only group by year
+    [switch]$YearOnly,
 
     [string]$ReportPath
 )
@@ -146,6 +154,11 @@ function Test-PathRelationship {
 
 #endregion Helpers
 
+# ---- Runtime ----
+$ti_sta = "2.1"
+Write-Host ("{0}{1}" -f (' ' * (([Math]::Max(0, $Host.UI.RawUI.BufferSize.Width / 2) - [Math]::Floor($Null.Length / 2)))), "WELCOME TO COPY WITH TIMESTAMP version: " ) -ForegroundColor Green -NoNewline
+Write-Host "$ti_sta" -ForegroundColor Yellow
+
 try {
     # GUI selection if parameters are not provided
     if ($UseGui -and -not $Source)      { $Source      = Select-Folder -Title "Select SOURCE folder" }
@@ -190,13 +203,17 @@ try {
     foreach ($f in $files) {
         $i++
 
-        # Determine date and YYYY\MM
-        $dt = $f.$TimeField
+        # Determine date and grouping keys
+        $dt    = $f.$TimeField
         $year  = $dt.ToString('yyyy')
         $month = $dt.ToString('MM')
 
-        # Destination directory
-        $destDir = Join-Path $Destination (Join-Path $year $month)
+        # Destination directory (year-only vs year+month)
+        if ($YearOnly) {
+            $destDir = Join-Path $Destination $year
+        } else {
+            $destDir = Join-Path $Destination (Join-Path $year $month)
+        }
 
         if ($KeepStructure) {
             $relDir = Get-RelativeDirectory -SourceRoot $Source -FileDirectory $f.DirectoryName
@@ -214,10 +231,9 @@ try {
             $actionName = "Move"
         }
 
-        
-	Write-Progress -Activity "$actionVerb by $TimeField -> $year\$month" `
-               -Status    ("{0} / {1}: {2}" -f $i, $total, $f.FullName)
-
+        $progressTarget = if ($YearOnly) { "$year" } else { "$year\$month" }
+        Write-Progress -Activity "$actionVerb by $TimeField -> $progressTarget" `
+                       -Status    ("{0} / {1}: {2}" -f $i, $total, $f.FullName)
 
         try {
             if ($PSCmdlet.ShouldProcess($f.FullName, "$actionVerb -> $target")) {
@@ -233,7 +249,7 @@ try {
                         TimeField = $TimeField
                         TimeValue = $dt
                         Year      = $year
-                        Month     = $month
+                        Month     = if ($YearOnly) { "" } else { $month }
                         Source    = $f.FullName
                         Target    = $target
                         Action    = $actionName
@@ -248,7 +264,7 @@ try {
                         TimeField = $TimeField
                         TimeValue = $dt
                         Year      = $year
-                        Month     = $month
+                        Month     = if ($YearOnly) { "" } else { $month }
                         Source    = $f.FullName
                         Target    = $target
                         Action    = $actionName
@@ -266,7 +282,7 @@ try {
                     TimeField = $TimeField
                     TimeValue = $dt
                     Year      = $year
-                    Month     = $month
+                    Month     = if ($YearOnly) { "" } else { $month }
                     Source    = $f.FullName
                     Target    = $target
                     Action    = $actionName
@@ -293,9 +309,7 @@ try {
         }
     }
 
-    $finalVerb = "Copied"
-    if ($Move.IsPresent) { $finalVerb = "Moved" }
-
+    $finalVerb = if ($Move.IsPresent) { "Moved" } else { "Copied" }
     Write-Host ("{0}: {1} | Skipped: {2} | Errors: {3} | Time: {4}" -f $finalVerb, $processed, $skipped, $failed, $sw.Elapsed) -ForegroundColor Green
 
     Start-Process explorer.exe $Destination
